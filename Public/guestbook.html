@@ -7,26 +7,37 @@
     <title>Document</title>
     <link rel="stylesheet" href="./style.css">
 </head>
-<h1>Guestbook</h1>
-<p id="list-error" role="alert"></p>
-<ul id="guestbook-list" class="guestbook-list"></ul>
-<form id="guestbook-form">
-    <label for="name">Name</label>
-    <input id="name" type="text" name="name" maxlength="40" required />
 
-    <label for="msg">Message</label>
-    <textarea id="msg" name="msg" maxlength="280" required></textarea>
+<body>
+    <nav>
+        <a href="/">Home</a>
+        <a href="/projects">Projects</a>
+        <a href="/about">About</a>
+        <a href="/guestbook">Guestbook</a>
+        <a href="/?theme=light">Light mode</a>
+        <a href="/?theme=dark">Dark mode</a>
+    </nav>
 
-    <button type="submit">Post</button>
-</form>
-<p id="form-error" role="alert"></p>
-<!-- <form id="guestbook-form">
+    <h1>Guestbook</h1>
+    <p id="list-error" role="alert"></p>
+    <ul id="guestbook-list" class="guestbook-list"></ul>
+    <form id="guestbook-form">
+        <label for="name">Name</label>
+        <input id="name" type="text" name="name" maxlength="40" required />
+
+        <label for="msg">Message</label>
+        <textarea id="msg" name="msg" maxlength="280" required></textarea>
+
+        <button type="submit">Post</button>
+    </form>
+    <p id="form-error" role="alert"></p>
+    <!-- <form id="guestbook-form">
     <input type="text" name="msg" placeholder="Leave a meassage" autocomplete="off" required>
     <button type="submit">Post</button>
 </form> -->
-<button type="button" id="logout-button">Log Out</button>
+    <button type="button" id="logout-button">Log Out</button>
 
-<body>
+
 
 </body>
 <script>
@@ -48,10 +59,11 @@
     //     });
     // }
     async function loadMessages() {
+        const listError = document.querySelector('#list-error');
         try {
             const response = await fetch('/api/guestbook');
             const entries = await response.json();
-            const listError = document.querySelector('#list-error');
+
             listError.textContent = '';
 
             if (!response.ok) {

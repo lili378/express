@@ -1,14 +1,13 @@
-[
-  {
-    "id": "8def0804-00a4-4085-9ee4-1c7b097c299b",
-    "name": "Riley",
-    "msg": "jbvcn",
-    "createdAt": "2026-10-05T13:40:35.354Z"
-  },
-  {
-    "id": "4c33ec20-6820-4918-a5e3-7aa69f5f2c19",
-    "name": "Ether",
-    "msg": "Yayy?",
-    "createdAt": "2026-10-05T13:41:03.573Z"
-  }
+{
+  "id": "8def0804-00a4-4085-9ee4-1c7b097c299b",
+  "name": "Riley",
+  "msg": "jbvcn",
+  "createdAt": "2026-10-05T13:40:35.354Z"
+},
+{
+  "id": "4c33ec20-6820-4918-a5e3-7aa69f5f2c19",
+  "name": "Ether",
+  "msg": "Yayy?",
+  "createdAt": "2026-10-05T13:41:03.573Z"
+}
 ]
