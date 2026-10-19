@@ -19,7 +19,7 @@ const app = express();
 const apodCache = new Map();
 const TODAY_MAX_AGE = 60 * 60 * 1000; // 1 hour in milliseconds
 const MAX_CACHE_SIZE = 100;
-
+const isProduction = process.env.NODE_ENV === 'production';
 
 
 // Trust the X-Forwarded-For header set by hosts like Render, so the rate
