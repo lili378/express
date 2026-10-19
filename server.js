@@ -1,4 +1,12 @@
 require('dotenv').config();
+// Stop immediately if any required setting is missing
+const REQUIRED_ENV = ['SESSION_SECRET', 'APP_PASSWORD', 'NASA_API_KEY'];
+for (const name of REQUIRED_ENV) {
+    if (!process.env[name]) {
+        console.error(`Missing ${name} in .env (or in Render's Environment settings)`);
+        process.exit(1);
+    }
+}
 const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
@@ -86,7 +94,7 @@ app.use((req, res, next) => {
 const limiter = rateLimit({
     windowMs: 10 * 1000, // 10 second window
     limit: 100,          // max requests per window, per IP
-    message: '<h1>429 Too Many Requests</h1><p>Please wait 10 seconds.</p>'
+    message: { error: 'Too many requests. Please wait 10 seconds.' }
 });
 app.use(limiter);
 // Stricter limit just for the NASA route
@@ -99,21 +107,42 @@ app.use((req, res, next) => {
     if (MAINTENANCE_MODE) return res.status(503).send('...Maintenace Mode');
     next();
 });
+// Strict limit for login attempts: 10 tries per 15 minutes, per visitor
 
 // Tracks logged-in users via a signed cookie - the browser sends it back
 // automatically, no frontend code needed. Requires SESSION_SECRET in .env.
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'fallback_secret',
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 15 * 60 * 1000 } // session expires after 15 minutes
+    cookie: {
+        maxAge: 15 * 60 * 1000,   // 15 minutes
+        httpOnly: true,           // page JavaScript cannot read it
+        sameSite: 'lax',          // other sites cannot send it with their forms
+        secure: isProduction      // only sent over HTTPS on the live site
+    }
 }));
 
 // Route guard - use this on any route that should require login.
 // Example: app.get('/dashboard', requireAuth, (req, res) => { ... });
+// function requireAuth(req, res, next) {
+//     if (!req.session.isAuthenticated) {
+//         return res.status(401).json({ error: 'Please log in first' });
+//     }
+//     next();
+// }
+// For API routes: JavaScript gets a clear JSON error
 function requireAuth(req, res, next) {
     if (!req.session.isAuthenticated) {
-        return res.status(401).json({ error: 'Please log in first' });
+        return res.status(401).json({ error: 'Please log in first.' });
+    }
+    next();
+}
+
+// For pages: people get sent to the login page
+function requireLoginPage(req, res, next) {
+    if (!req.session.isAuthenticated) {
+        return res.redirect('/');
     }
     next();
 }
@@ -142,7 +171,7 @@ app.get('/api/stats', (req, res) => {
 //     res.status(401).send('<h1>401 Unauthorized</h1><p>Incorrect password.</p><a href="/">Try Again</a>');
 // });
 
-app.post('/login', (req, res) => {
+app.post('/login', authLimiter, (req, res) => {
     const { password, rememberMe } = req.body;
     if (password === process.env.APP_PASSWORD) {
         req.session.isAuthenticated = true;
@@ -163,7 +192,7 @@ app.post('/logout', (req, res) => {
 });
 
 // Example protected route - try visiting this without logging in first
-app.get('/dashboard', requireAuth, (req, res) => {
+app.get('/dashboard', requireLoginPage, (req, res) => {
     // res.send('<h1>Dashboard</h1><p>You are logged in!</p>');
     res.sendFile(path.join(PUBLIC_DIR, 'dashboard.html'));
 });
@@ -216,14 +245,17 @@ app.post('/api/guestbook', requireAuth, (req, res) => {
     res.status(201).json(entry);
 });
 
-app.get('/api/headers-demo', (req, res) => {
-    res.set('X-Student-Name', 'Etherlinda');
-    res.json({
-        browser: req.get('User-Agent'),
-        languages: req.get('Accept-Language'),
-        allRequestHeaders: req.headers
+// Practice routes: only available on your own computer
+if (!isProduction) {
+    app.get('/api/headers-demo', (req, res) => {
+        res.set('X-Student-Name', 'Etherlinda');
+        res.json({
+            browser: req.get('User-Agent'),
+            languages: req.get('Accept-Language'),
+            allRequestHeaders: req.headers
+        });
     });
-});
+}
 
 // Returns an error message string, or null if the entry is valid
 
@@ -270,7 +302,7 @@ function validateApodDate(date) {
 }
 
 
-app.get('/guestbook', requireAuth, (req, res) => {
+app.get('/guestbook', requireLoginPage, (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'guestbook.html'))
 })
 
@@ -353,7 +385,12 @@ app.get('/api/space', spaceLimiter, async (req, res) => {
     res.json(result);
 });
 
-
+// Strict limit for login attempts: 10 tries per 15 minutes, per visitor
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    message: { error: 'Too many login attempts. Please wait 15 minutes and try again.' }
+});
 // app.get('/your-route-here', (req, res) => {
 //
 // });
@@ -367,6 +404,10 @@ app.get('/api/space', spaceLimiter, async (req, res) => {
 // Serves everything in /public (put this AFTER your routes)
 // `extensions: ['html']` lets /projects find projects.html without the extension
 // ==========================================
+// Lets Render (or anyone) check that the server is running
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+});
 app.use(express.static(PUBLIC_DIR, { extensions: ['html'] }));
 // 404 HANDLER - runs only if no route or static file answered
 app.use((req, res) => {
