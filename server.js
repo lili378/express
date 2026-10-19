@@ -103,6 +103,11 @@ const spaceLimiter = rateLimit({
     limit: 10,           // 10 lookups per minute, per visitor
     message: { error: 'Too many space lookups. Please wait a minute.' }
 });
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    message: { error: 'Too many login attempts. Please wait 15 minutes and try again.' }
+});
 app.use((req, res, next) => {
     if (MAINTENANCE_MODE) return res.status(503).send('...Maintenace Mode');
     next();
@@ -386,11 +391,7 @@ app.get('/api/space', spaceLimiter, async (req, res) => {
 });
 
 // Strict limit for login attempts: 10 tries per 15 minutes, per visitor
-const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 10,
-    message: { error: 'Too many login attempts. Please wait 15 minutes and try again.' }
-});
+
 // app.get('/your-route-here', (req, res) => {
 //
 // });
