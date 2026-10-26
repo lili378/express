@@ -27,11 +27,12 @@ async function checkAuthState() {
 loginForm.addEventListener('submit', async (event) => {
     event.preventDefault();
     const password = document.querySelector('#password').value;
+    const username = document.querySelector('#username').value;
     const rememberMe = event.target.rememberMe.checked;
     const response = await fetch(loginForm.action, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, rememberMe })
+        body: JSON.stringify({ password, rememberMe, username })
     });
     const data = await response.json().catch(() => ({ success: false }));
     if (data.success) {

@@ -1,6 +1,7 @@
 require('dotenv').config();
+const helmet = require('helmet');
 // Stop immediately if any required setting is missing
-const REQUIRED_ENV = ['SESSION_SECRET', 'APP_PASSWORD', 'NASA_API_KEY'];
+const REQUIRED_ENV = ['SESSION_SECRET', 'NASA_API_KEY', 'ADMIN_USERNAME', 'ADMIN_PASSWORD'];
 for (const name of REQUIRED_ENV) {
     if (!process.env[name]) {
         console.error(`Missing ${name} in .env (or in Render's Environment settings)`);
@@ -9,31 +10,31 @@ for (const name of REQUIRED_ENV) {
 }
 const db = require('./db');
 // const crypto = require('crypto');
+
 const express = require('express');
 const session = require('express-session');
 const rateLimit = require('express-rate-limit');
 const { Filter } = require('bad-words')
 const fs = require('fs');
 const path = require('path');
-const helmet = require('helmet');
+
 const app = express();
 const apodCache = new Map();
 const TODAY_MAX_AGE = 60 * 60 * 1000; // 1 hour in milliseconds
 const MAX_CACHE_SIZE = 100;
 const isProduction = process.env.NODE_ENV === 'production';
-
+const bcrypt = require('bcryptjs');
 
 // Trust the X-Forwarded-For header set by hosts like Render, so the rate
 // limiter sees each visitor's real IP instead of the proxy's
 app.set('trust proxy', 1);
-// Security headers on every response.
-// CSP is off for now; you will turn it on in Part 5.
-// app.use(helmet({ contentSecurityPolicy: false }));
-// app.use(helmet());
+app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false }));
+
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
-            'img-src': ["'self'", 'data:', 'https://assets.science.nasa.gov']
+            'img-src': ["'self'", 'data:', 'https://assets.science.nasa.gov', 'https://substackcdn.com']
         }
     }
 }));
@@ -67,6 +68,19 @@ function validateEntry(name, msg) {
     }
     if (msg.trim().length < 1 || msg.trim().length > 280) {
         return 'Message must be 1 to 280 characters.';
+    }
+    return null;
+}
+// Returns an error message, or null if the username and password are OK
+function validateCredentials(username, password) {
+    if (typeof username !== 'string' || typeof password !== 'string') {
+        return 'Username and password must be text.';
+    }
+    if (!/^[a-z0-9_]{3,20}$/.test(username.trim().toLowerCase())) {
+        return 'Username must be 3 to 20 letters, numbers or underscores.';
+    }
+    if (password.length < 8 || password.length > 72) {
+        return 'Password must be 8 to 72 characters.';
     }
     return null;
 }
@@ -128,7 +142,21 @@ app.use(session({
         secure: isProduction      // only sent over HTTPS on the live site
     }
 }));
-
+// Starts a brand-new session for this user
+function startSession(req, user, rememberMe) {
+    return new Promise((resolve, reject) => {
+        req.session.regenerate((err) => {
+            if (err) return reject(err);
+            req.session.userId = user.id;
+            req.session.username = user.username;
+            req.session.role = user.role;
+            if (rememberMe) {
+                req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+            }
+            resolve();
+        });
+    });
+}
 // Route guard - use this on any route that should require login.
 // Example: app.get('/dashboard', requireAuth, (req, res) => { ... });
 // function requireAuth(req, res, next) {
@@ -139,7 +167,7 @@ app.use(session({
 // }
 // For API routes: JavaScript gets a clear JSON error
 function requireAuth(req, res, next) {
-    if (!req.session.isAuthenticated) {
+    if (!req.session.userId) {
         return res.status(401).json({ error: 'Please log in first.' });
     }
     next();
@@ -147,12 +175,18 @@ function requireAuth(req, res, next) {
 
 // For pages: people get sent to the login page
 function requireLoginPage(req, res, next) {
-    if (!req.session.isAuthenticated) {
+    if (!req.session.userId) {
         return res.redirect('/');
     }
     next();
 }
-
+// For admin-only pages: everyone else goes back to the home page
+function requireAdminPage(req, res, next) {
+    if (req.session.role !== 'admin') {
+        return res.redirect('/');
+    }
+    next();
+}
 // ==========================================
 // ROUTES
 // Fill these in! Example routes are shown below.
@@ -178,17 +212,17 @@ app.get('/api/stats', (req, res) => {
 //     res.status(401).send('<h1>401 Unauthorized</h1><p>Incorrect password.</p><a href="/">Try Again</a>');
 // });
 
-app.post('/login', authLimiter, (req, res) => {
-    const { password, rememberMe } = req.body;
-    if (password === process.env.APP_PASSWORD) {
-        req.session.isAuthenticated = true;
-        if (rememberMe) {
-            req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
-        }
-        return res.json({ success: true });
-    }
-    res.status(401).json({ success: false, error: 'Incorrect password' });
-});
+// app.post('/login', authLimiter, (req, res) => {
+//     const { password, rememberMe } = req.body;
+//     if (password === process.env.APP_PASSWORD) {
+//         req.session.isAuthenticated = true;
+//         if (rememberMe) {
+//             req.session.cookie.maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+//         }
+//         return res.json({ success: true });
+//     }
+//     res.status(401).json({ success: false, error: 'Incorrect password' });
+// });
 
 // Logout - destroys the session so req.session.isAuthenticated is gone
 app.post('/logout', (req, res) => {
@@ -199,7 +233,7 @@ app.post('/logout', (req, res) => {
 });
 
 // Example protected route - try visiting this without logging in first
-app.get('/dashboard', requireLoginPage, (req, res) => {
+app.get('/dashboard', requireAdminPage, (req, res) => {
     // res.send('<h1>Dashboard</h1><p>You are logged in!</p>');
     res.sendFile(path.join(PUBLIC_DIR, 'dashboard.html'));
 });
@@ -217,9 +251,16 @@ app.get('/projects', (req, res) => {
 });
 
 app.get('/api/whoami', (req, res) => {
-    res.json({ loggedIn: !!req.session.isAuthenticated });
+    if (!req.session.userId) {
+        return res.json({ loggedIn: false });
+    }
+    res.json({
+        loggedIn: true,
+        userId: req.session.userId,
+        username: req.session.username,
+        role: req.session.role
+    });
 });
-
 // app.get('/api/guestbook', requireAuth, (req, res) => {
 //     res.json(getGuestbookMessages());
 // });
@@ -295,7 +336,23 @@ app.delete('/api/guestbook/:id', requireAuth, async (req, res) => {
     }
     res.status(204).end();
 });
+app.post('/login', authLimiter, async (req, res) => {
+    const { username, password, rememberMe } = req.body;
+    if (typeof username !== 'string' || typeof password !== 'string') {
+        return res.status(400).json({ error: 'Username and password are required.' });
+    }
 
+    const user = await db.getUserByUsername(username.trim());
+    const passwordOk = user && await bcrypt.compare(password, user.passwordHash);
+
+    if (!passwordOk) {
+        // Same message whether the username or the password was wrong
+        return res.status(401).json({ error: 'Incorrect username or password.' });
+    }
+
+    await startSession(req, user, rememberMe);
+    res.json({ success: true, username: user.username });
+});
 // CREATE
 app.post('/api/guestbook', requireAuth, async (req, res) => {
     const { name, msg } = req.body;
@@ -307,7 +364,24 @@ app.post('/api/guestbook', requireAuth, async (req, res) => {
     const entry = await db.addEntry({ name: name.trim(), msg: msg.trim() });
     res.status(201).json(entry);
 });
+app.post('/register', authLimiter, async (req, res) => {
+    const { username, password } = req.body;
+    const error = validateCredentials(username, password);
+    if (error) {
+        return res.status(400).json({ error });
+    }
 
+    const cleanName = username.trim().toLowerCase();
+    if (await db.getUserByUsername(cleanName)) {
+        return res.status(409).json({ error: 'That username is already taken.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await db.addUser({ username: cleanName, passwordHash });
+
+    await startSession(req, user); // new users are logged in right away
+    res.status(201).json({ username: user.username });
+});
 // Practice routes: only available on your own computer
 if (!isProduction) {
     app.get('/api/headers-demo', (req, res) => {
@@ -491,4 +565,15 @@ app.use((err, req, res, next) => {
     }
     res.status(status).send('<h1>Something went wrong</h1><p>Please try again later.</p><a href="/">Back to home</a>');
 });
-app.listen(PORT, () => console.log(`Server live on http://localhost:${PORT}`));
+// Creates the admin account from .env if it doesn't exist yet
+async function ensureAdmin() {
+    const existing = await db.getUserByUsername(process.env.ADMIN_USERNAME);
+    if (existing) return;
+
+    const passwordHash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12);
+    await db.addUser({ username: process.env.ADMIN_USERNAME, passwordHash, role: 'admin' });
+    console.log('Created admin account');
+}
+ensureAdmin().then(() => {
+    app.listen(PORT, () => console.log(`Server live on http://localhost:${PORT}`));
+});

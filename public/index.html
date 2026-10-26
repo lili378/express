@@ -12,7 +12,8 @@
     <div class="container">
         <div class="box">
             <div class="banner-img">
-                <img src="" alt="cake image">
+                <img src="https://substackcdn.com/image/fetch/$s_!9CpN!,w_800,c_limit,f_webp,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2Ff228dd0c-7dc9-48ee-8c6f-b597a4a94389_1151x1500.jpeg"
+                    alt="cake image">
             </div>
             <nav>
                 <a href="/">Home</a>
@@ -22,16 +23,20 @@
                 <a href="/space">NASA</a>
                 <a href="/?theme=light">Light mode</a>
                 <a href="/?theme=dark">Dark mode</a>
+                <a href="/attacker">Attacher</a>
             </nav>
             <div class="card">
                 <div class="login-card" id="login-section">
                     <h2>Acess the Shoutbox</h2>
+                    <label for="username">Username</label>
+                    <input id="username" name="username" autocomplete="username" required>
                     <form id="login-form" action="/login" method="post" id="login-form">
                         <label for="password">Enter Password:</label>
                         <input type="password" id="password" name="password" placeholder="Enter password" required>
                         <label><input type="checkbox" name="rememberMe" />Remember me</label>
                         <button type="submit">Log in</button>
                     </form>
+                    <p>New here? <a href="/register">Create an account</a></p>
                 </div>
                 <p id="login-message" role="status"></p>
                 <p id="status" role="status"></p>
