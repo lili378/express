@@ -52,6 +52,9 @@ if (fs.existsSync(LOG_FILE) && fs.statSync(LOG_FILE).size > 128 * 128) {
     const recentLines = fs.readFileSync(LOG_FILE, 'utf8').split('\n').slice(-10);
     fs.writeFileSync(LOG_FILE, recentLines.join('\n'));
 }
+function canModify(req, entry) {
+    return entry.authorId === req.session.userId || req.session.role === 'admin';
+}
 
 // const GUESTBOOK_FILE = path.join(__dirname, 'guestbook.json');
 
@@ -156,6 +159,33 @@ function startSession(req, user, rememberMe) {
             resolve();
         });
     });
+}
+const MIN_FILL_TIME = 2000; // 2 seconds, in milliseconds
+
+// Writes a note about a caught bot to the console and server.log
+function logBot(req, reason) {
+    const line = `[${new Date().toISOString()}] BOT BLOCKED (${reason}) from ${req.ip} on ${req.path}\n`;
+    console.log(line.trim());
+    fs.appendFile(LOG_FILE, line, () => { });
+}
+
+// Blocks bot submissions using a honeypot and a time trap.
+// Bots get a fake "success" so they don't learn they were caught.
+function botCheck(req, res, next) {
+    // Check 1: the honeypot. Humans leave it empty.
+    if (req.body.website) {
+        logBot(req, 'honeypot filled');
+        return res.status(201).json({});
+    }
+
+    // Check 2: the time trap. Humans need more than 2 seconds.
+    const loadedAt = req.session.formLoadedAt;
+    if (!loadedAt || Date.now() - loadedAt < MIN_FILL_TIME) {
+        logBot(req, 'submitted too fast');
+        return res.status(201).json({});
+    }
+
+    next(); // passed both checks
 }
 // Route guard - use this on any route that should require login.
 // Example: app.get('/dashboard', requireAuth, (req, res) => { ... });
@@ -295,6 +325,7 @@ app.get('/api/whoami', (req, res) => {
 
 
 app.get('/guestbook', requireLoginPage, (req, res) => {
+    req.session.formLoadedAt = Date.now(); // start the clock
     res.sendFile(path.join(PUBLIC_DIR, 'guestbook.html'))
 })
 // READ ALL
@@ -312,28 +343,37 @@ app.get('/api/guestbook/:id', requireAuth, async (req, res) => {
 });
 // UPDATE
 app.put('/api/guestbook/:id', requireAuth, async (req, res) => {
-    const { name, msg } = req.body;
-    const error = validateEntry(name, msg);
+    const { msg } = req.body;
+    const entry = await db.getEntryById(req.params.id);
+    if (!entry) {
+        return res.status(404).json({ error: 'Entry not found.' });
+    }
+    if (!canModify(req, entry)) {
+        return res.status(403).json({ error: 'You can only edit your own messages.' });
+    }
+
+    const error = validateEntry(entry.name, msg);
     if (error) {
         return res.status(400).json({ error });
     }
 
-    const updated = await db.updateEntry(req.params.id, {
-        name: name.trim(),
-        msg: msg.trim()
-    });
-    if (!updated) {
-        return res.status(404).json({ error: 'Entry not found.' });
-    }
+    // Keep your bad-words check here too, if you have one
+
+    const updated = await db.updateEntry(entry.id, { name: entry.name, msg: msg.trim() });
     res.json(updated);
 });
 
 // DELETE
 app.delete('/api/guestbook/:id', requireAuth, async (req, res) => {
-    const deleted = await db.deleteEntry(req.params.id);
-    if (!deleted) {
+    const entry = await db.getEntryById(req.params.id);
+    if (!entry) {
         return res.status(404).json({ error: 'Entry not found.' });
     }
+    if (!canModify(req, entry)) {
+        return res.status(403).json({ error: 'You can only delete your own messages.' });
+    }
+
+    await db.deleteEntry(entry.id);
     res.status(204).end();
 });
 app.post('/login', authLimiter, async (req, res) => {
@@ -354,14 +394,32 @@ app.post('/login', authLimiter, async (req, res) => {
     res.json({ success: true, username: user.username });
 });
 // CREATE
-app.post('/api/guestbook', requireAuth, async (req, res) => {
-    const { name, msg } = req.body;
+// app.post('/api/guestbook', requireAuth, async (req, res) => {
+//     const { name, msg } = req.body;
+//     const error = validateEntry(name, msg);
+//     if (error) {
+//         return res.status(400).json({ error });
+//     }
+
+//     const entry = await db.addEntry({ name: name.trim(), msg: msg.trim() });
+//     res.status(201).json(entry);
+// });
+app.post('/api/guestbook', requireAuth, botCheck, async (req, res) => {
+    const { msg } = req.body;
+    const name = req.session.username;
+
     const error = validateEntry(name, msg);
     if (error) {
         return res.status(400).json({ error });
     }
 
-    const entry = await db.addEntry({ name: name.trim(), msg: msg.trim() });
+    // Keep your bad-words check here, if you have one
+
+    const entry = await db.addEntry({
+        name,
+        msg: msg.trim(),
+        authorId: req.session.userId
+    });
     res.status(201).json(entry);
 });
 app.post('/register', authLimiter, async (req, res) => {

@@ -1,3 +1,4 @@
+let currentUser = null;
 async function deleteEntry(id) {
     if (!confirm('Delete this message?')) return;
     const listError = document.querySelector('#list-error');
@@ -56,12 +57,17 @@ function startEdit(li, entry) {
     textarea.focus();
 }
 
+
+
 async function loadMessages() {
     const listError = document.querySelector('#list-error');
     try {
+        currentUser = await (await fetch('/api/whoami')).json();
         const response = await fetch('/api/guestbook');
         const entries = await response.json();
+        if (!currentUser) {
 
+        }
         listError.textContent = '';
 
         if (!response.ok) {
@@ -90,18 +96,20 @@ async function loadMessages() {
                 edited.textContent = ' (edited)';
                 li.append(edited);
             }
+            const canEdit = entry.authorId === currentUser.userId || currentUser.role === 'admin';
+            if (canEdit) {
+                const editButton = document.createElement('button');
+                editButton.type = 'button';
+                editButton.textContent = 'Edit';
+                editButton.addEventListener('click', () => startEdit(li, entry));
 
-            const editButton = document.createElement('button');
-            editButton.type = 'button';
-            editButton.textContent = 'Edit';
-            editButton.addEventListener('click', () => startEdit(li, entry));
+                const deleteButton = document.createElement('button');
+                deleteButton.type = 'button';
+                deleteButton.textContent = 'Delete';
+                deleteButton.addEventListener('click', () => deleteEntry(entry.id));
 
-            const deleteButton = document.createElement('button');
-            deleteButton.type = 'button';
-            deleteButton.textContent = 'Delete';
-            deleteButton.addEventListener('click', () => deleteEntry(entry.id));
-
-            li.append(editButton, deleteButton);
+                li.append(editButton, deleteButton);
+            }
             list.append(li);
         });
     } catch (err) {
@@ -112,6 +120,9 @@ async function loadMessages() {
 
 
 }
+
+
+
 document.querySelector('#guestbook-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errorBox = document.querySelector('#form-error');
@@ -121,8 +132,10 @@ document.querySelector('#guestbook-form').addEventListener('submit', async (e) =
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                name: document.querySelector('#name').value,
-                msg: document.querySelector('#msg').value
+                name: currentUser.username,
+                msg: document.querySelector('#msg').value,
+                website: document.querySelector('#website').value
+
             })
         });
         if (!response.ok) {
